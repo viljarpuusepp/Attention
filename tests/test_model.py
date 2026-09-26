@@ -223,6 +223,23 @@ class ModelTest(unittest.TestCase):
             self.assertGreaterEqual(min(full["encoder"][0]["ffn_relu"][0]), 0.0)
             self.assertEqual(len(full["decoder"][0]["after_self"][0]), config.d_model)
             self.assertEqual(len(full["decoder"][0]["after_cross"][0]), config.d_model)
+            start = full["decoder_start"]
+            self.assertEqual(start["token"], "<bos>")
+            self.assertEqual(start["id"], tgt_vocab.bos_id)
+            self.assertAlmostEqual(start["position"][0], 0.0, places=3)
+            self.assertAlmostEqual(start["position"][1], 1.0, places=3)
+            head = full["output_head"]
+            self.assertEqual(head["dimensions"], config.d_model)
+            self.assertEqual(head["vocab"], len(tgt_vocab))
+            self.assertFalse(head["bias"])
+            self.assertEqual(len(head["h"]), 4)
+            winner = head["top"][0]
+            self.assertAlmostEqual(
+                math.exp(winner["logit"]) / head["sum_exp"],
+                winner["probability"],
+                places=3,
+            )
+            self.assertAlmostEqual(head["logit"], winner["logit"], places=3)
             written = []
             for step in trace["decode"]:
                 chosen = [item["token"] for item in step["alternatives"] if item["chosen"]]

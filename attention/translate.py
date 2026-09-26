@@ -310,6 +310,61 @@ def _decode_summary(prefix: list[str], chosen: dict | None, on_path: dict | None
     return text
 
 
+def _decoder_start(model: Transformer, tgt_vocab: Vocabulary) -> dict:
+    """Target embedding of <bos> plus position 0, the decoder's first input vector."""
+    scale = math.sqrt(model.d_model)
+    raw = model.tgt_embed.weight[tgt_vocab.bos_id].detach()
+    scaled = raw * scale
+    position = model.positional.pe[0, 0]
+    summed = scaled + position
+    return {
+        "token": tgt_vocab.BOS,
+        "id": tgt_vocab.bos_id,
+        "scale": round(scale, 3),
+        "dimensions": int(model.d_model),
+        "raw": [round(float(value), 4) for value in raw[:3]],
+        "scaled": [round(float(value), 3) for value in scaled[:3]],
+        "position": [round(float(value), 4) for value in position[:4]],
+        "sum": [round(float(value), 4) for value in summed[:4]],
+        "sum_norm": round(float(summed.norm()), 3),
+    }
+
+
+def _output_head(model: Transformer, hidden: torch.Tensor, tgt_vocab: Vocabulary) -> dict:
+    """Project the <bos> decoder state onto every French token, then apply softmax."""
+    vector = hidden[0, 0]
+    logits = F.linear(vector, model.tgt_embed.weight)
+    log_sum = torch.logsumexp(logits, dim=0)
+    probabilities = torch.softmax(logits, dim=0)
+    values, indices = torch.topk(logits, k=min(8, int(logits.numel())))
+    rows = []
+    for logit, index in zip(values.tolist(), indices.tolist()):
+        token_id = int(index)
+        rows.append(
+            {
+                "token": tgt_vocab.itos[token_id],
+                "id": token_id,
+                "logit": round(float(logit), 4),
+                "probability": round(float(probabilities[token_id]), 4),
+            }
+        )
+    winner = int(indices[0])
+    embedding_row = model.tgt_embed.weight[winner]
+    return {
+        "input": tgt_vocab.BOS,
+        "predicts": rows[0]["token"],
+        "dimensions": int(vector.numel()),
+        "vocab": int(logits.numel()),
+        "h": [round(float(value), 4) for value in vector[:4]],
+        "h_norm": round(float(vector.norm()), 3),
+        "bias": False,
+        "products": [round(float(vector[i] * embedding_row[i]), 4) for i in range(3)],
+        "logit": round(float(torch.dot(vector, embedding_row)), 4),
+        "sum_exp": round(float(torch.exp(log_sum)), 4),
+        "top": rows,
+    }
+
+
 def _full_state(
     model: Transformer,
     src: torch.Tensor,
@@ -331,8 +386,10 @@ def _full_state(
         "target_sum": _rows(state["tgt_sum"]),
         "target_inputs": inputs,
         "writes": writes,
+        "decoder_start": _decoder_start(model, tgt_vocab),
         "encoder": [_encoder_record(snap, source_tokens) for snap in state["encoder"]],
         "decoder": [_decoder_record(snap, inputs, writes) for snap in state["decoder"]],
+        "output_head": _output_head(model, state["decoder"][-1]["after_ffn"], tgt_vocab),
     }
 
 

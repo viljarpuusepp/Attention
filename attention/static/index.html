@@ -605,10 +605,10 @@
       return block;
     }
 
-    function renderDecoderLayer(layer, index, sourceLabels, dims) {
+    function renderDecoderLayer(layer, index, sourceLabels, dims, title) {
       const block = document.createElement("div");
       const heading = document.createElement("h3");
-      heading.textContent = "Decoder layer " + (index + 1);
+      heading.textContent = title || ("Decoder layer " + (index + 1));
       const summary = document.createElement("p");
       summary.className = "fine";
       summary.textContent = layer.summary;
@@ -624,7 +624,7 @@
         layer.cross_attention,
         layer.cross_rows,
         sourceLabels,
-        "Cross-attention. Each row is the French token being written; columns are the English tokens."
+        "Cross-attention onto the encoder output. Columns are the English tokens."
       ));
       block.appendChild(namedMap("Residual stream after masked self-attention", layer.writes, layer.after_self, true, note, dims));
       block.appendChild(namedMap("Residual stream after cross-attention", layer.writes, layer.after_cross, true, note, dims));
@@ -632,6 +632,13 @@
       block.appendChild(namedMap("Feed-forward ReLU, " + active + " units on", layer.writes, layer.ffn_relu, false, note, dims));
       block.appendChild(namedMap("Residual stream after the feed-forward block", layer.writes, layer.after_ffn, true, note, dims));
       return block;
+    }
+
+    function fineParagraph(text) {
+      const line = document.createElement("p");
+      line.className = "fine";
+      line.textContent = text;
+      return line;
     }
 
     function formula(text) {
@@ -676,6 +683,167 @@
         length,
         formula("√(x₁² + x₂² + … + x" + example.dimensions + "²) = √" + example.sum_of_squares.toFixed(3) + " = " + example.norm.toFixed(3))
       );
+      return block;
+    }
+
+    function firstDecoderRow(layer) {
+      const label = layer.self_labels[0];
+      return {
+        summary: "At " + label + ", " + layer.ffn_active[0] + " of " + layer.ffn_width
+          + " ReLU units are on. This row is only the <bos> position; the French token is not known yet.",
+        self_attention: layer.self_attention.map((head) => [head[0].slice(0, 1)]),
+        self_labels: [label],
+        cross_attention: layer.cross_attention.map((head) => [head[0]]),
+        cross_rows: [label],
+        writes: [label],
+        after_self: [layer.after_self[0]],
+        after_cross: [layer.after_cross[0]],
+        ffn_relu: [layer.ffn_relu[0]],
+        ffn_active: [layer.ffn_active[0]],
+        ffn_width: layer.ffn_width,
+        after_ffn: [layer.after_ffn[0]]
+      };
+    }
+
+    function decoderStartBlock(start, full, dims) {
+      const block = document.createElement("div");
+      const heading = document.createElement("h3");
+      heading.textContent = "4.1 Decoder input";
+      const intro = document.createElement("p");
+      intro.className = "fine";
+      intro.textContent = start.token + " is vocabulary id " + start.id
+        + ". Like an English token, it is looked up in the target embedding, multiplied by √"
+        + start.dimensions + " = " + start.scale.toFixed(3)
+        + ", then added to position 0 of the sinusoid.";
+      const plus = document.createElement("p");
+      plus.className = "fine";
+      plus.textContent = "Position 0 of the sinusoid begins";
+      const summed = document.createElement("p");
+      summed.className = "fine";
+      summed.textContent = "Their sum is the 128-dimensional decoder input at this position. Its length is "
+        + start.sum_norm.toFixed(3) + ". The first four coordinates are";
+      const later = document.createElement("p");
+      later.className = "fine";
+      later.textContent = "On the next iteration the prefix is two tokens, so the decoder receives two such vectors: E(<bos>)+PE(0) and E(chosen word)+PE(1). Section 5 is that growth. Section 6 shows every position of the finished prefix.";
+      block.append(
+        heading,
+        intro,
+        formula("[ " + start.raw.map((value) => signed(value, 4)).join(",  ") + ",  … ]"),
+        fineParagraph("then after scaling, the first coordinates are"),
+        formula("[ " + start.raw.map((value) => signed(value, 4) + " × " + start.scale.toFixed(3)).join(",  ") + ",  … ]"),
+        fineParagraph("which is about"),
+        formula("[ " + start.scaled.map((value) => signed(value, 3)).join(",  ") + ",  … ]"),
+        plus,
+        formula("[ " + start.position.map((value) => signed(value, 4)).join(",  ") + ",  … ]"),
+        summed,
+        formula("[ " + start.sum.map((value) => signed(value, 4)).join(",  ") + ",  … ]"),
+        namedMap(
+          "Decoder input at <bos>, same dimensions as the sinusoid curves",
+          [start.token],
+          [full.target_sum[0]],
+          true,
+          "Columns are dimensions " + dims.join(", ") + ".",
+          dims
+        ),
+        later
+      );
+      return block;
+    }
+
+    function generationBlock(trace) {
+      const chosen = trace.decode.map((step) => {
+        const pick = (step.alternatives || []).find((item) => item.chosen);
+        return pick ? pick.token : "?";
+      });
+      const chain = ["<bos>"].concat(chosen).join(" → ");
+      const block = stepSection(
+        "5. Autoregressive generation",
+        "The first iteration is section 4. Each later iteration appends the chosen token and runs the decoder again. " + chain + "."
+      );
+      trace.decode.forEach((step, index) => {
+        const pick = (step.alternatives || []).find((item) => item.chosen);
+        const title = "5." + (index + 1) + " Prefix " + step.prefix.join(" ");
+        const percent = pick ? (pick.probability * 100).toFixed(2) : "";
+        const nextPrefix = step.prefix.concat(pick ? [pick.token] : []).join(" ");
+        const summary = pick
+          ? "The decoder reads " + step.prefix.join(" ") + ". " + pick.token + " has probability "
+            + pick.probability.toFixed(4) + " (" + percent + "%). It is appended, so the next prefix is " + nextPrefix + "."
+          : step.summary;
+        const piece = stepSection(title, summary);
+        piece.appendChild(dataTable(
+          ["candidate", "probability", "log probability"],
+          (step.alternatives || []).map((item) => ({
+            on: item.chosen,
+            cells: [item.token, item.probability.toFixed(4), item.log_prob.toFixed(4)]
+          }))
+        ));
+        const beamNote = document.createElement("p");
+        beamNote.className = "fine";
+        beamNote.textContent = "Beam kept after this choice. The highlighted row is continued. Score = log probability / length penalty.";
+        piece.appendChild(beamNote);
+        piece.appendChild(dataTable(
+          ["hypothesis", "log P", "length penalty", "score"],
+          (step.beam || []).map((item) => ({
+            on: item.on_path,
+            cells: [item.tokens.join(" "), item.log_prob.toFixed(4), item.penalty.toFixed(4), item.score.toFixed(4)]
+          }))
+        ));
+        block.appendChild(piece);
+      });
+      return block;
+    }
+
+    function outputHeadBlock(head) {
+      const block = stepSection(
+        "4.4 Vocabulary output projection",
+        "Only here does a French token appear. The vector h is the residual at <"
+          + head.input.slice(1, -1)
+          + "> after the last decoder layer."
+      );
+      const vector = document.createElement("p");
+      vector.className = "fine";
+      vector.textContent = "After the last decoder layer, the <" + head.input.slice(1, -1)
+        + "> position is one vector h with " + head.dimensions
+        + " coordinates. Its length is " + head.h_norm.toFixed(3) + ". The first four coordinates are";
+      const products = head.products.map((value) => signed(value, 4)).join(" + ");
+      const projection = document.createElement("p");
+      projection.className = "fine";
+      projection.textContent = "The output matrix W_out has one row per French token and "
+        + head.dimensions + " columns. It is the French embedding matrix, and this model adds no bias. "
+        + "Each logit is the dot product of h with one row. For " + head.predicts
+        + ", the first three products h_k W_k are " + products
+        + ", and the sum over all " + head.dimensions + " coordinates is the logit " + head.logit.toFixed(4) + ".";
+      const scores = document.createElement("p");
+      scores.className = "fine";
+      scores.textContent = "That projection emits " + head.vocab + " logits, one for every French token. The largest are:";
+      const softmax = document.createElement("p");
+      softmax.className = "fine";
+      softmax.textContent = "Softmax turns those logits into probabilities. For " + head.predicts + ":";
+      const winner = head.top[0];
+      block.append(
+        vector,
+        formula("[ " + head.h.map((value) => signed(value, 4)).join(",  ") + ",  … ]"),
+        formula("z = h W_out"),
+        projection,
+        scores,
+        dataTable(
+          ["token", "logit z", "probability"],
+          head.top.map((row) => ({
+            on: row.token === head.predicts,
+            cells: [row.token, row.logit.toFixed(4), row.probability.toFixed(4)]
+          }))
+        ),
+        softmax,
+        formula("P = exp(z) / Σ exp(z)"),
+        formula(
+          "P(" + winner.token + ") = exp(" + winner.logit.toFixed(4) + ") / "
+          + head.sum_exp.toFixed(4) + " = " + winner.probability.toFixed(4)
+        )
+      );
+      const bridge = document.createElement("p");
+      bridge.className = "fine";
+      bridge.textContent = "Section 5 repeats this cycle. Before each choice, <pad> and <bos> are removed, and on the first step so is <eos>. The winning token is appended to the prefix.";
+      block.appendChild(bridge);
       return block;
     }
 
@@ -759,51 +927,57 @@
         trace.encoder_summary + " Both layers follow, with every head, the ReLU hidden state, and the residual stream."
       );
       trace.full.encoder.forEach((layer, index) => encoder.appendChild(renderEncoderLayer(layer, index, dims)));
+      const encoderOut = document.createElement("p");
+      encoderOut.className = "fine";
+      encoderOut.textContent = "The residual stream after the last encoder layer is the encoder output. Cross-attention in the decoder reads that sequence, and nothing else from the English side.";
+      encoder.appendChild(encoderOut);
       steps.appendChild(encoder);
 
-      const decoder = stepSection(
-        "4. Decoder layers on the chosen sentence",
-        "One forward pass of the prefix the beam kept, including the step that writes <eos>. "
-          + "Rows of the residual and ReLU maps are the French token that position writes."
+      const one = stepSection(
+        "4. One decoder step",
+        "No French word has been chosen yet. This is the whole path from <bos> to the first probability."
       );
-      trace.full.decoder.forEach((layer, index) => decoder.appendChild(renderDecoderLayer(layer, index, sourceLabels, dims)));
-      decoder.appendChild(namedMap(
-        "Target word vectors scaled by √d, same dimensions as the sinusoids",
+      one.appendChild(decoderStartBlock(trace.full.decoder_start, trace.full, dims));
+      trace.full.decoder.forEach((layer, index) => {
+        one.appendChild(renderDecoderLayer(
+          firstDecoderRow(layer),
+          index,
+          sourceLabels,
+          dims,
+          "4." + (index + 2) + " Decoder layer " + (index + 1)
+        ));
+      });
+      one.appendChild(outputHeadBlock(trace.full.output_head));
+      steps.appendChild(one);
+
+      steps.appendChild(generationBlock(trace));
+
+      const prefix = trace.full.target_inputs.join(" ");
+      const diagnosed = stepSection(
+        "6. Decoder layers on the chosen prefix",
+        "The beam kept " + prefix + ". These maps are a diagnostic pass of that whole prefix through decoder layer 1 and layer 2, after the tokens were already chosen."
+      );
+      diagnosed.appendChild(namedMap(
+        "Target embedding plus position at every prefix token",
         trace.full.target_inputs,
-        trace.full.target_word,
+        trace.full.target_sum,
         true,
-        "Columns are dimensions " + dims.join(", ") + ".",
+        dimNote,
         dims
       ));
-      steps.appendChild(decoder);
-
-      trace.decode.forEach((step, index) => {
-        const chosen = (step.alternatives || []).find((item) => item.chosen);
-        const title = "5." + (index + 1) + " Decoder writes " + (chosen ? chosen.token : "the next token");
-        const block = stepSection(title, step.summary);
-        block.appendChild(dataTable(
-          ["candidate", "probability", "log probability"],
-          (step.alternatives || []).map((item) => ({
-            on: item.chosen,
-            cells: [item.token, item.probability.toFixed(4), item.log_prob.toFixed(4)]
-          }))
+      trace.full.decoder.forEach((layer, index) => {
+        diagnosed.appendChild(renderDecoderLayer(
+          layer,
+          index,
+          sourceLabels,
+          dims,
+          "Decoder layer " + (index + 1)
         ));
-        const beamNote = document.createElement("p");
-        beamNote.className = "fine";
-        beamNote.textContent = "Beam kept after this choice. The highlighted row is the one that becomes the translation. Score = log probability / length penalty.";
-        block.appendChild(beamNote);
-        block.appendChild(dataTable(
-          ["hypothesis", "log P", "length penalty", "score"],
-          (step.beam || []).map((item) => ({
-            on: item.on_path,
-            cells: [item.tokens.join(" "), item.log_prob.toFixed(4), item.penalty.toFixed(4), item.score.toFixed(4)]
-          }))
-        ));
-        steps.appendChild(block);
       });
+      steps.appendChild(diagnosed);
 
       const done = stepSection(
-        "6. Join the tokens",
+        "7. Join the tokens",
         trace.pieces.join("  ") + "  →  " + trace.sentence
       );
       steps.appendChild(done);
