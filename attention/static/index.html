@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attention</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3efe6;
+      --paper: #fffdf8;
+      --ink: #1d1915;
+      --muted: #6f675e;
+      --line: #e3dacd;
+      --heat: 148, 42, 27;
+      --button: #1d1915;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 17px/1.5 "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 44rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+    h1 {
+      margin: 0;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-size: 2.4rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    h2 {
+      margin: 2rem 0 0.4rem;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+    p { margin: 0.4rem 0; }
+    .lede, .fine, #stats, #status, caption { color: var(--muted); }
+    .fine, #stats, caption, #status { font-size: 0.92rem; }
+    form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1.25rem;
+    }
+    input[type="text"] {
+      flex: 1 1 16rem;
+      min-width: 0;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      color: inherit;
+      font: inherit;
+    }
+    button {
+      font: inherit;
+      cursor: pointer;
+    }
+    form button {
+      padding: 0.65rem 1rem;
+      border: 0;
+      border-radius: 6px;
+      background: var(--button);
+      color: #f6f1e8;
+    }
+    form button:disabled { opacity: 0.55; cursor: progress; }
+    .examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+    }
+    .examples button {
+      padding: 0.2rem 0.65rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: transparent;
+      color: inherit;
+    }
+    #french {
+      min-height: 1.5em;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-size: 1.7rem;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin: 0.4rem 0 0.8rem;
+    }
+    select {
+      font: inherit;
+      padding: 0.25rem 0.4rem;
+      background: var(--paper);
+      color: inherit;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .map {
+      overflow-x: auto;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.75rem;
+    }
+    table { border-collapse: collapse; }
+    th, td { padding: 0; }
+    th {
+      font-weight: 500;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    th.col {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      padding: 0.35rem 0.15rem;
+      white-space: nowrap;
+    }
+    th.row {
+      text-align: right;
+      padding-right: 0.45rem;
+      white-space: nowrap;
+    }
+    td.cell {
+      width: 1.7rem;
+      height: 1.7rem;
+      border: 1px solid rgba(255, 253, 248, 0.7);
+    }
+    .step { margin-top: 1.15rem; }
+    .step h3 {
+      margin: 0;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-size: 1.08rem;
+      font-weight: 600;
+    }
+    .scroll { overflow-x: auto; }
+    table.data { width: 100%; background: var(--paper); border: 1px solid var(--line); }
+    table.data th, table.data td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 0.92rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    table.data tr.on td { background: #f6e7dc; }
+    .wave {
+      width: 100%;
+      height: auto;
+      display: block;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .legend { display: flex; flex-wrap: wrap; gap: 0.9rem; margin: 0.35rem 0 0.6rem; }
+    .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .swatch { width: 1.4rem; height: 0; border-top: 2px solid; }
+    .swatch.sine { border-color: #94241b; }
+    .swatch.cosine { border-color: #1d4e89; border-top-style: dashed; }
+    .swatch.mark { border-color: #2f6f4e; }
+    .heat-scroll { max-height: 22rem; overflow: auto; border: 1px solid var(--line); background: var(--paper); }
+    table.vector-map { border-collapse: separate; border-spacing: 1px; }
+    table.vector-map td { width: 5px; min-width: 5px; height: 12px; padding: 0; line-height: 0; font-size: 0; }
+    table.vector-map.sparse td {
+      width: 3.4rem;
+      min-width: 3.4rem;
+      height: 1.7rem;
+      line-height: 1.7rem;
+      font-size: 0.78rem;
+      text-align: center;
+      color: #1d1915;
+    }
+    table.vector-map th {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--muted);
+      padding: 0 0.15rem;
+    }
+    table.vector-map th.row {
+      position: sticky;
+      left: 0;
+      background: #fffdf8;
+      padding-right: 0.4rem;
+      white-space: nowrap;
+      text-align: right;
+    }
+    table.data td.heat {
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    footer {
+      margin-top: 2.5rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 0.92em; }
+    .formula {
+      font-family: Consolas, "Courier New", monospace;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      padding: 0.4rem 0.65rem;
+      overflow-x: auto;
+      margin: 0.35rem 0;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Attention</h1>
+    <p class="lede">A small English-to-French transformer, built the way Vaswani et al. described it in 2017: multi-head attention, sinusoidal positions, and a position-wise feed-forward network.</p>
+    <p id="stats">Loading the checkpoint…</p>
+
+    <form id="form">
+      <label class="fine" for="sentence" style="position:absolute; left:-999px;">English sentence</label>
+      <input id="sentence" type="text" maxlength="300" autocomplete="off" placeholder="a short English sentence" required>
+      <button type="submit">Translate</button>
+    </form>
+    <div class="examples" id="examples">
+      <button type="button">Go.</button>
+      <button type="button">Run!</button>
+      <button type="button">Hello.</button>
+      <button type="button">Thank you.</button>
+      <button type="button">How are you?</button>
+      <button type="button">I love you.</button>
+      <button type="button">Wait!</button>
+      <button type="button">Help!</button>
+      <button type="button">Good morning.</button>
+      <button type="button">He is a doctor.</button>
+      <button type="button">This is a book.</button>
+    </div>
+
+    <h2>French</h2>
+    <p id="french" aria-live="polite"></p>
+    <p id="status"></p>
+
+    <h2>Steps</h2>
+    <p class="fine">These figures are measured on the sentence you just translated.</p>
+    <div id="steps"><p class="fine" id="steps-empty">Translate a sentence to fill this in.</p></div>
+
+    <h2>Cross-attention</h2>
+    <p class="fine">Each row is a French token. The color is how strongly the last decoder layer looked at each English token while writing it. Color is scaled within the row; the tooltip is the real weight.</p>
+    <div class="toolbar">
+      <label for="head">Head</label>
+      <select id="head"></select>
+    </div>
+    <div class="map">
+      <table id="grid"></table>
+    </div>
+    <p class="fine"><code>softmax(Q Kᵀ / √d<sub>k</sub>) V</code></p>
+
+    <footer>
+      Training sentences are short pairs from the Tatoeba Project, compiled at manythings.org
+      (file dated 2026-02-13) under CC BY 2.0. Per-sentence credits are in <code>data/fra.txt</code>.
+      The full paper model is much larger and was trained on WMT; this one is a CPU-sized copy of the architecture.
+    </footer>
+  </main>
+  <script>
+    const sentence = document.querySelector("#sentence");
+    const french = document.querySelector("#french");
+    const status = document.querySelector("#status");
+    const stats = document.querySelector("#stats");
+    const grid = document.querySelector("#grid");
+    const steps = document.querySelector("#steps");
+    const headSelect = document.querySelector("#head");
+    const submit = document.querySelector("form button");
+    let last = null;
+
+    function setHeads(count) {
+      const previous = headSelect.value || "mean";
+      headSelect.replaceChildren();
+      const mean = document.createElement("option");
+      mean.value = "mean";
+      mean.textContent = "all heads, mean";
+      headSelect.appendChild(mean);
+      for (let i = 0; i < count; i += 1) {
+        const option = document.createElement("option");
+        option.value = String(i);
+        option.textContent = "head " + (i + 1);
+        headSelect.appendChild(option);
+      }
+      headSelect.value = [...headSelect.options].some((option) => option.value === previous) ? previous : "mean";
+    }
+
+    function matrixFor(attention, which) {
+      if (which === "mean") {
+        const heads = attention.length;
+        const rows = attention[0].length;
+        const cols = rows ? attention[0][0].length : 0;
+        const out = [];
+        for (let row = 0; row < rows; row += 1) {
+          const line = [];
+          for (let col = 0; col < cols; col += 1) {
+            let total = 0;
+            for (let head = 0; head < heads; head += 1) total += attention[head][row][col];
+            line.push(total / heads);
+          }
+          out.push(line);
+        }
+        return out;
+      }
+      return attention[Number(which)] || attention[0];
+    }
+
+    function stepSection(title, summary) {
+      const section = document.createElement("section");
+      section.className = "step";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const copy = document.createElement("p");
+      copy.className = "fine";
+      copy.textContent = summary;
+      section.append(heading, copy);
+      return section;
+    }
+
+    function dataTable(headers, rows) {
+      const wrap = document.createElement("div");
+      wrap.className = "scroll";
+      const table = document.createElement("table");
+      table.className = "data";
+      const head = document.createElement("tr");
+      headers.forEach((header) => {
+        const cell = document.createElement("th");
+        cell.textContent = header;
+        head.appendChild(cell);
+      });
+      table.appendChild(head);
+      rows.forEach((row) => {
+        const line = document.createElement("tr");
+        if (row.on) line.className = "on";
+        row.cells.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          line.appendChild(cell);
+        });
+        table.appendChild(line);
+      });
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function heatTable(colLabels, matrix, rowLabels) {
+      const rows = rowLabels || colLabels;
+      const wrap = document.createElement("div");
+      wrap.className = "scroll map";
+      const table = document.createElement("table");
+      table.className = "data";
+      const head = document.createElement("tr");
+      head.appendChild(document.createElement("th"));
+      colLabels.forEach((label) => {
+        const cell = document.createElement("th");
+        cell.textContent = label;
+        head.appendChild(cell);
+      });
+      table.appendChild(head);
+      matrix.forEach((row, rowIndex) => {
+        const line = document.createElement("tr");
+        const label = document.createElement("th");
+        label.textContent = rows[rowIndex];
+        line.appendChild(label);
+        const peak = Math.max(...row, 1e-8);
+        row.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.className = "heat";
+          const ink = Math.max(0, Math.min(1, value / peak));
+          cell.style.background = "rgba(148, 42, 27, " + (0.08 + 0.7 * ink).toFixed(3) + ")";
+          cell.textContent = value.toFixed(3);
+          line.appendChild(cell);
+        });
+        table.appendChild(line);
+      });
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function swatch(kind, label) {
+      const item = document.createElement("span");
+      const bar = document.createElement("i");
+      bar.className = "swatch " + kind;
+      item.append(bar, document.createTextNode(label));
+      return item;
+    }
+
+    function svgEl(name) {
+      return document.createElementNS("http://www.w3.org/2000/svg", name);
+    }
+
+    function drawWave(channel, waves) {
+      const width = 640;
+      const height = 118;
+      const left = 32;
+      const right = 12;
+      const top = 14;
+      const bottom = 22;
+      const last = (channel.sin.length - 1) * waves.step;
+      const xOf = (position) => left + (position / last) * (width - left - right);
+      const yOf = (value) => top + ((1.15 - value) / 2.3) * (height - top - bottom);
+      const svg = svgEl("svg");
+      svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+      svg.setAttribute("class", "wave");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", "Positional sinusoid for dimensions " + channel.sin_dim + " and " + channel.cos_dim);
+
+      function hline(value, stroke, widthPx) {
+        const line = svgEl("line");
+        line.setAttribute("x1", String(left));
+        line.setAttribute("x2", String(width - right));
+        line.setAttribute("y1", String(yOf(value)));
+        line.setAttribute("y2", String(yOf(value)));
+        line.setAttribute("stroke", stroke);
+        line.setAttribute("stroke-width", String(widthPx));
+        svg.appendChild(line);
+      }
+      hline(1, "#e3dacd", 0.6);
+      hline(-1, "#e3dacd", 0.6);
+      hline(0, "#cfc4b4", 1);
+
+      function poly(values, stroke, dash) {
+        const path = svgEl("polyline");
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", stroke);
+        path.setAttribute("stroke-width", "1.7");
+        path.setAttribute("stroke-linejoin", "round");
+        path.setAttribute("stroke-linecap", "round");
+        if (dash) path.setAttribute("stroke-dasharray", "5 3");
+        path.setAttribute("points", values.map((value, index) => {
+          return xOf(index * waves.step).toFixed(2) + "," + yOf(value).toFixed(2);
+        }).join(" "));
+        svg.appendChild(path);
+      }
+      poly(channel.cos, "#1d4e89", true);
+      poly(channel.sin, "#94241b", false);
+
+      waves.marks.forEach((mark) => {
+        const line = svgEl("line");
+        const x = xOf(mark.position);
+        line.setAttribute("x1", String(x));
+        line.setAttribute("x2", String(x));
+        line.setAttribute("y1", String(yOf(1.12)));
+        line.setAttribute("y2", String(yOf(-1.12)));
+        line.setAttribute("stroke", "#2f6f4e");
+        line.setAttribute("stroke-width", "1");
+        svg.appendChild(line);
+        const sample = Math.round(mark.position / waves.step);
+        [channel.sin, channel.cos].forEach((series, which) => {
+          const dot = svgEl("circle");
+          dot.setAttribute("cx", String(x));
+          dot.setAttribute("cy", String(yOf(series[sample])));
+          dot.setAttribute("r", "3.2");
+          dot.setAttribute("fill", which === 0 ? "#94241b" : "#1d4e89");
+          svg.appendChild(dot);
+        });
+      });
+
+      function label(x, y, text, anchor) {
+        const node = svgEl("text");
+        node.setAttribute("x", String(x));
+        node.setAttribute("y", String(y));
+        node.setAttribute("fill", "#6f675e");
+        node.setAttribute("font-size", "11");
+        node.setAttribute("font-family", "Segoe UI, sans-serif");
+        if (anchor) node.setAttribute("text-anchor", anchor);
+        node.textContent = text;
+        svg.appendChild(node);
+      }
+      label(2, yOf(1) + 4, "1");
+      label(2, yOf(0) + 4, "0");
+      label(2, yOf(-1) + 4, "−1");
+      [0, 12, 24, 36, Math.round(last)].forEach((position) => {
+        if (position <= last + 1e-6) label(xOf(position), height - 6, String(position), "middle");
+      });
+      return svg;
+    }
+
+    function vectorHeat(rowLabels, matrix, diverging, columnNote, columnIndexes) {
+      const width = matrix[0] ? matrix[0].length : 0;
+      const indexes = (columnIndexes || (matrix[0] || []).map((_, index) => index)).filter((index) => index < width);
+      const sliced = matrix.map((row) => indexes.map((index) => row[index]));
+      let peak = 1e-8;
+      sliced.forEach((row) => row.forEach((value) => {
+        peak = Math.max(peak, Math.abs(value));
+      }));
+      const sparse = indexes.length <= 12;
+      const wrap = document.createElement("div");
+      wrap.className = "scroll heat-scroll";
+      const table = document.createElement("table");
+      table.className = sparse ? "vector-map sparse" : "vector-map";
+      const head = document.createElement("tr");
+      const corner = document.createElement("th");
+      corner.className = "row";
+      corner.textContent = "";
+      head.appendChild(corner);
+      if (sparse) {
+        indexes.forEach((dim) => {
+          const cell = document.createElement("th");
+          cell.textContent = String(dim);
+          head.appendChild(cell);
+        });
+      } else {
+        for (let start = 0; start < indexes.length; start += 16) {
+          const cell = document.createElement("th");
+          cell.colSpan = Math.min(16, indexes.length - start);
+          cell.textContent = String(indexes[start]);
+          head.appendChild(cell);
+        }
+      }
+      table.appendChild(head);
+      sliced.forEach((row, rowIndex) => {
+        const line = document.createElement("tr");
+        const label = document.createElement("th");
+        label.className = "row";
+        label.textContent = rowLabels[rowIndex];
+        line.appendChild(label);
+        row.forEach((value, column) => {
+          const cell = document.createElement("td");
+          const mag = Math.min(1, Math.abs(value) / peak);
+          const positive = !diverging || value >= 0;
+          const ink = positive ? "148, 42, 27" : "29, 78, 137";
+          cell.style.background = "rgba(" + ink + ", " + (0.07 + 0.93 * mag).toFixed(3) + ")";
+          cell.title = rowLabels[rowIndex] + " · " + indexes[column] + " · " + Number(value).toFixed(3);
+          if (sparse) {
+            cell.textContent = Number(value).toFixed(2);
+            cell.style.color = mag > 0.55 ? "#fffdf8" : "#1d1915";
+          }
+          line.appendChild(cell);
+        });
+        table.appendChild(line);
+      });
+      wrap.appendChild(table);
+      const note = document.createElement("p");
+      note.className = "fine";
+      note.textContent = (columnNote || ("Columns are dimensions 0–" + (indexes.length - 1) + "."))
+        + " Color is scaled to the largest absolute value here, " + peak.toFixed(3)
+        + ". Hover a cell for the value. Rust is positive and blue is negative.";
+      const box = document.createElement("div");
+      box.append(wrap, note);
+      return box;
+    }
+
+    function namedMap(title, labels, matrix, diverging, columnNote, columnIndexes) {
+      const wrap = document.createElement("div");
+      const heading = document.createElement("p");
+      heading.className = "fine";
+      heading.textContent = title;
+      wrap.append(heading, vectorHeat(labels, matrix, diverging, columnNote, columnIndexes));
+      return wrap;
+    }
+
+    function attentionBlock(heads, rowLabels, colLabels, blurb) {
+      const box = document.createElement("div");
+      const copy = document.createElement("p");
+      copy.className = "fine";
+      copy.textContent = blurb;
+      const bar = document.createElement("div");
+      bar.className = "toolbar";
+      const select = document.createElement("select");
+      const mean = document.createElement("option");
+      mean.value = "mean";
+      mean.textContent = "all heads, mean";
+      select.appendChild(mean);
+      heads.forEach((_, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = "head " + (index + 1);
+        select.appendChild(option);
+      });
+      const host = document.createElement("div");
+      function paint() {
+        host.replaceChildren(heatTable(colLabels, matrixFor(heads, select.value), rowLabels));
+      }
+      select.addEventListener("change", paint);
+      bar.appendChild(select);
+      paint();
+      box.append(copy, bar, host);
+      return box;
+    }
+
+    function renderEncoderLayer(layer, index, dims) {
+      const block = document.createElement("div");
+      const heading = document.createElement("h3");
+      heading.textContent = "Encoder layer " + (index + 1);
+      const summary = document.createElement("p");
+      summary.className = "fine";
+      summary.textContent = layer.summary;
+      const note = "Columns are dimensions " + dims.join(", ") + ", the same samples as the sinusoid curves.";
+      block.append(heading, summary);
+      block.appendChild(attentionBlock(
+        layer.self_attention,
+        layer.labels,
+        layer.labels,
+        "Self-attention. Rows and columns are the English tokens."
+      ));
+      block.appendChild(namedMap("Residual stream after attention", layer.labels, layer.after_attention, true, note, dims));
+      const active = layer.labels.map((label, row) => label + " " + layer.ffn_active[row] + "/" + layer.ffn_width).join(", ");
+      block.appendChild(namedMap("Feed-forward ReLU, " + active + " units on", layer.labels, layer.ffn_relu, false, note, dims));
+      block.appendChild(namedMap("Residual stream after the feed-forward block", layer.labels, layer.after_ffn, true, note, dims));
+      return block;
+    }
+
+    function renderDecoderLayer(layer, index, sourceLabels, dims) {
+      const block = document.createElement("div");
+      const heading = document.createElement("h3");
+      heading.textContent = "Decoder layer " + (index + 1);
+      const summary = document.createElement("p");
+      summary.className = "fine";
+      summary.textContent = layer.summary;
+      const note = "Columns are dimensions " + dims.join(", ") + ", the same samples as the sinusoid curves.";
+      block.append(heading, summary);
+      block.appendChild(attentionBlock(
+        layer.self_attention,
+        layer.self_labels,
+        layer.self_labels,
+        "Masked self-attention. The axes are the tokens already fed to the decoder, starting with <bos>."
+      ));
+      block.appendChild(attentionBlock(
+        layer.cross_attention,
+        layer.cross_rows,
+        sourceLabels,
+        "Cross-attention. Each row is the French token being written; columns are the English tokens."
+      ));
+      block.appendChild(namedMap("Residual stream after masked self-attention", layer.writes, layer.after_self, true, note, dims));
+      block.appendChild(namedMap("Residual stream after cross-attention", layer.writes, layer.after_cross, true, note, dims));
+      const active = layer.writes.map((label, row) => label + " " + layer.ffn_active[row] + "/" + layer.ffn_width).join(", ");
+      block.appendChild(namedMap("Feed-forward ReLU, " + active + " units on", layer.writes, layer.ffn_relu, false, note, dims));
+      block.appendChild(namedMap("Residual stream after the feed-forward block", layer.writes, layer.after_ffn, true, note, dims));
+      return block;
+    }
+
+    function formula(text) {
+      const line = document.createElement("p");
+      line.className = "formula";
+      line.textContent = text;
+      return line;
+    }
+
+    function signed(value, digits) {
+      const text = Number(value).toFixed(digits);
+      return value < 0 ? "−" + text.slice(1) : text;
+    }
+
+    function bracket(values, digits) {
+      return "[ " + values.map((value) => signed(value, digits)).join(",  ") + ",  … ]";
+    }
+
+    function scalingBlock(example) {
+      const block = document.createElement("div");
+      const intro = document.createElement("p");
+      intro.className = "fine";
+      intro.textContent = "If the " + example.token + " embedding is";
+      const products = example.raw.map((value) => signed(value, 4) + " × " + example.scale.toFixed(3));
+      const after = document.createElement("p");
+      after.className = "fine";
+      after.textContent = "then after scaling, the first coordinates are";
+      const about = document.createElement("p");
+      about.className = "fine";
+      about.textContent = "which is about";
+      const length = document.createElement("p");
+      length.className = "fine";
+      length.textContent = "The table value ‖word × √d‖ = " + example.norm.toFixed(3)
+        + " is the length of all " + example.dimensions + " coordinates:";
+      block.append(
+        intro,
+        formula(bracket(example.raw, 4)),
+        after,
+        formula("[ " + products.join(",  ") + ",  … ]"),
+        about,
+        formula(bracket(example.scaled, 3)),
+        length,
+        formula("√(x₁² + x₂² + … + x" + example.dimensions + "²) = √" + example.sum_of_squares.toFixed(3) + " = " + example.norm.toFixed(3))
+      );
+      return block;
+    }
+
+    function renderSteps(trace) {
+      steps.replaceChildren();
+      if (!trace) {
+        const empty = document.createElement("p");
+        empty.className = "fine";
+        empty.textContent = "Translate a sentence to fill this in.";
+        steps.appendChild(empty);
+        return;
+      }
+      const tokens = stepSection("1. Token ids", trace.token_summary);
+      tokens.appendChild(dataTable(
+        ["token", "id", "in vocabulary"],
+        trace.tokens.map((row) => ({
+          cells: [row.text, String(row.id), row.unknown ? "no, used as <unk>" : "yes"]
+        }))
+      ));
+      steps.appendChild(tokens);
+
+      const vectors = stepSection("2. Embedding plus position", trace.vector_summary);
+      vectors.appendChild(scalingBlock(trace.scaling));
+      vectors.appendChild(dataTable(
+        ["token", "‖word × √d‖", "‖position‖", "‖sum‖", "position dims 0–3", "sum dims 0–3"],
+        trace.vectors.map((row) => ({
+          cells: [
+            row.text,
+            row.embed_norm.toFixed(3),
+            row.position_norm.toFixed(3),
+            row.sum_norm.toFixed(3),
+            row.position_dims.map((value) => value.toFixed(3)).join(", "),
+            row.sum_dims.map((value) => value.toFixed(3)).join(", ")
+          ]
+        }))
+      ));
+      const waves = trace.sinusoids;
+      const legend = document.createElement("p");
+      legend.className = "legend fine";
+      legend.append(
+        swatch("sine", "sine, even dimension"),
+        swatch("cosine", "cosine, odd dimension"),
+        swatch("mark", "this sentence")
+      );
+      vectors.appendChild(legend);
+      const waveSummary = document.createElement("p");
+      waveSummary.className = "fine";
+      waveSummary.textContent = waves.summary;
+      vectors.appendChild(waveSummary);
+      waves.channels.forEach((channel) => {
+        const caption = document.createElement("p");
+        caption.className = "fine";
+        caption.textContent = "Dimensions " + channel.sin_dim + " and " + channel.cos_dim
+          + ". Repeats every " + channel.period + " positions.";
+        vectors.append(caption, drawWave(channel, waves));
+      });
+      const matrixNote = document.createElement("p");
+      matrixNote.className = "fine";
+      matrixNote.textContent = trace.sinusoid_matrix.summary;
+      const sourceLabels = trace.tokens.map((row) => row.text);
+      const dims = trace.sample_dims;
+      const dimNote = "Columns are dimensions " + dims.join(", ") + ", the same samples as the sinusoid curves.";
+      vectors.append(
+        matrixNote,
+        vectorHeat(
+          trace.sinusoid_matrix.dims.map(String),
+          trace.sinusoid_matrix.values,
+          true,
+          "Rows are dimensions " + dims.join(", ")
+            + ". Columns are positions 0–" + (trace.sinusoid_matrix.values[0].length - 1)
+            + ". Even rows are sine and odd rows are cosine."
+        ),
+        namedMap("Scaled word vectors at those dimensions", sourceLabels, trace.full.word, true, dimNote, dims),
+        namedMap("Positional vectors at those dimensions", sourceLabels, trace.full.position, true, dimNote, dims),
+        namedMap("Sum that enters the first encoder layer, same dimensions", sourceLabels, trace.full.sum, true, dimNote, dims)
+      );
+      steps.appendChild(vectors);
+
+      const encoder = stepSection(
+        "3. Encoder layers",
+        trace.encoder_summary + " Both layers follow, with every head, the ReLU hidden state, and the residual stream."
+      );
+      trace.full.encoder.forEach((layer, index) => encoder.appendChild(renderEncoderLayer(layer, index, dims)));
+      steps.appendChild(encoder);
+
+      const decoder = stepSection(
+        "4. Decoder layers on the chosen sentence",
+        "One forward pass of the prefix the beam kept, including the step that writes <eos>. "
+          + "Rows of the residual and ReLU maps are the French token that position writes."
+      );
+      trace.full.decoder.forEach((layer, index) => decoder.appendChild(renderDecoderLayer(layer, index, sourceLabels, dims)));
+      decoder.appendChild(namedMap(
+        "Target word vectors scaled by √d, same dimensions as the sinusoids",
+        trace.full.target_inputs,
+        trace.full.target_word,
+        true,
+        "Columns are dimensions " + dims.join(", ") + ".",
+        dims
+      ));
+      steps.appendChild(decoder);
+
+      trace.decode.forEach((step, index) => {
+        const chosen = (step.alternatives || []).find((item) => item.chosen);
+        const title = "5." + (index + 1) + " Decoder writes " + (chosen ? chosen.token : "the next token");
+        const block = stepSection(title, step.summary);
+        block.appendChild(dataTable(
+          ["candidate", "probability", "log probability"],
+          (step.alternatives || []).map((item) => ({
+            on: item.chosen,
+            cells: [item.token, item.probability.toFixed(4), item.log_prob.toFixed(4)]
+          }))
+        ));
+        const beamNote = document.createElement("p");
+        beamNote.className = "fine";
+        beamNote.textContent = "Beam kept after this choice. The highlighted row is the one that becomes the translation. Score = log probability / length penalty.";
+        block.appendChild(beamNote);
+        block.appendChild(dataTable(
+          ["hypothesis", "log P", "length penalty", "score"],
+          (step.beam || []).map((item) => ({
+            on: item.on_path,
+            cells: [item.tokens.join(" "), item.log_prob.toFixed(4), item.penalty.toFixed(4), item.score.toFixed(4)]
+          }))
+        ));
+        steps.appendChild(block);
+      });
+
+      const done = stepSection(
+        "6. Join the tokens",
+        trace.pieces.join("  ") + "  →  " + trace.sentence
+      );
+      steps.appendChild(done);
+    }
+
+    function draw() {
+      grid.replaceChildren();
+      if (!last || !last.attention || !last.attention.length || !last.target_tokens.length) {
+        const caption = document.createElement("caption");
+        caption.textContent = "A translation draws the map here.";
+        grid.appendChild(caption);
+        return;
+      }
+      const weights = matrixFor(last.attention, headSelect.value);
+      const head = document.createElement("tr");
+      head.appendChild(document.createElement("th"));
+      for (const token of last.source_tokens) {
+        const cell = document.createElement("th");
+        cell.className = "col";
+        cell.textContent = token;
+        head.appendChild(cell);
+      }
+      grid.appendChild(head);
+      last.target_tokens.forEach((token, rowIndex) => {
+        const row = document.createElement("tr");
+        const label = document.createElement("th");
+        label.className = "row";
+        label.textContent = token;
+        row.appendChild(label);
+        const values = weights[rowIndex] || [];
+        const peak = Math.max(...values, 1e-8);
+        values.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.className = "cell";
+          const ink = Math.max(0, Math.min(1, value / peak));
+          cell.style.background = "rgba(148, 42, 27, " + (0.08 + 0.92 * ink).toFixed(3) + ")";
+          cell.title = token + " ← " + value.toFixed(3);
+          row.appendChild(cell);
+        });
+        grid.appendChild(row);
+      });
+    }
+
+    async function loadInfo() {
+      const info = await fetch("/api/info").then((response) => response.json());
+      if (!info.ready) {
+        stats.textContent = info.error || "No checkpoint yet. Train one with python -m attention.train.";
+        setHeads(4);
+        draw();
+        return;
+      }
+      const accuracy = info.val_acc == null ? "" : " · validation token accuracy " + (100 * info.val_acc).toFixed(1) + "%";
+      stats.textContent = info.params.toLocaleString() + " parameters · " + info.n_layers + " layers · d_model " + info.d_model + " · " + info.n_heads + " heads · " + info.train_pairs.toLocaleString() + " training sentences" + accuracy;
+      setHeads(info.n_heads);
+      draw();
+    }
+
+    async function runTranslation(text) {
+      status.textContent = "";
+      french.textContent = "";
+      submit.disabled = true;
+      try {
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Translation failed.");
+        last = payload;
+        french.textContent = payload.translation || "…";
+        renderSteps(payload.trace);
+        if (payload.unknown && payload.unknown.length) {
+          status.textContent = "Read as unknown words: " + payload.unknown.join(", ") + ".";
+        } else {
+          status.textContent = "Read as " + payload.source_tokens.join(" ");
+        }
+        if (payload.attention && payload.attention.length) setHeads(payload.attention.length);
+        draw();
+      } catch (error) {
+        french.textContent = "";
+        renderSteps(null);
+        status.textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    document.querySelector("#form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      runTranslation(sentence.value);
+    });
+    document.querySelector("#examples").addEventListener("click", (event) => {
+      if (event.target.tagName !== "BUTTON") return;
+      sentence.value = event.target.textContent;
+      runTranslation(sentence.value);
+    });
+    headSelect.addEventListener("change", draw);
+    loadInfo().catch((error) => {
+      stats.textContent = error.message;
+    });
+    draw();
+  </script>
+</body>
+</html>
