@@ -217,6 +217,24 @@ class ModelTest(unittest.TestCase):
             self.assertEqual(len(full["encoder"][0]["ffn_relu"][0]), config.d_ff)
             self.assertEqual(len(full["encoder"][0]["after_attention"][0]), config.d_model)
             self.assertEqual(len(full["encoder"][0]["after_ffn"][0]), config.d_model)
+            self.assertEqual(len(full["encoder"][0]["q"][0]), config.d_model)
+            self.assertEqual(len(full["encoder"][0]["k"]), len(english))
+            self.assertEqual(len(full["encoder"][0]["v"][0]), config.d_model)
+            self.assertEqual(len(full["encoder"][0]["qk"]), config.n_heads)
+            self.assertEqual(len(full["encoder"][0]["qk"][0]), len(english))
+            self.assertEqual(len(full["encoder"][0]["qk"][0][0]), len(english))
+            self.assertEqual(len(full["encoder"][0]["mixed"][0]), config.d_model)
+            self.assertEqual(len(full["encoder"][0]["attn_out"][0]), config.d_model)
+            self.assertEqual(len(full["encoder"][0]["ffn_pre"][0]), config.d_ff)
+            self.assertEqual(len(full["encoder"][0]["ffn_out"][0]), config.d_model)
+            score_scale = math.sqrt(config.d_model / config.n_heads)
+            dots = full["encoder"][0]["qk"][0][0]
+            weights = full["encoder"][0]["self_attention"][0][0]
+            shifted = [value / score_scale for value in dots]
+            peak = max(shifted)
+            denom = sum(math.exp(value - peak) for value in shifted)
+            for weight, score in zip(weights, shifted):
+                self.assertAlmostEqual(weight, math.exp(score - peak) / denom, places=2)
             self.assertEqual(len(full["decoder"][0]["self_attention"]), config.n_heads)
             self.assertEqual(len(full["decoder"][0]["cross_attention"]), config.n_heads)
             self.assertEqual(len(full["decoder"][0]["ffn_relu"][0]), config.d_ff)

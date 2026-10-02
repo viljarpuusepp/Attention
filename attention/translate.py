@@ -447,10 +447,18 @@ def _encoder_record(snap: dict, labels: list[str]) -> dict:
             f"Residual length {after_attention[0]} after attention and {after_ffn[0]} after the feed-forward block."
         ),
         "self_attention": _heads(snap["self_attention"]),
+        "q": _rows(snap["q"]),
+        "k": _rows(snap["k"]),
+        "v": _rows(snap["v"]),
+        "qk": _heads(snap["qk"]),
+        "mixed": _rows(snap["mixed"]),
+        "attn_out": _rows(snap["attn_out"]),
+        "ffn_pre": _rows(snap["ffn_pre"]),
         "after_attention": _rows(snap["after_attention"]),
         "ffn_relu": _rows(snap["ffn_relu"]),
         "ffn_active": active,
         "ffn_width": width,
+        "ffn_out": _rows(snap["ffn_out"]),
         "after_ffn": _rows(snap["after_ffn"]),
         "labels": labels,
     }

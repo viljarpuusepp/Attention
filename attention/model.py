@@ -71,6 +71,44 @@ class MultiHeadAttention(nn.Module):
         self.w_v = nn.Linear(d_model, d_model)
         self.w_o = nn.Linear(d_model, d_model)
 
+    def decompose(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Same matmuls as forward, keeping Q, K, V, the raw scores, and the mix."""
+        batch, query_len, _ = query.shape
+        key_len = key.size(1)
+
+        def split(projected: torch.Tensor, length: int) -> torch.Tensor:
+            return projected.view(batch, length, self.n_heads, self.d_k).transpose(1, 2)
+
+        q = self.w_q(query)
+        k = self.w_k(key)
+        v = self.w_v(value)
+        qh = split(q, query_len)
+        kh = split(k, key_len)
+        vh = split(v, key_len)
+        dots = torch.matmul(qh, kh.transpose(-2, -1))
+        scores = dots / math.sqrt(self.d_k)
+        if mask is not None:
+            scores = scores.masked_fill(mask, float("-inf"))
+        weights = torch.softmax(scores, dim=-1)
+        weights = torch.nan_to_num(weights, nan=0.0)
+        mixed = torch.matmul(weights, vh)
+        concat = mixed.transpose(1, 2).contiguous().view(batch, query_len, -1)
+        return {
+            "q": q,
+            "k": k,
+            "v": v,
+            "qk": dots,
+            "weights": weights,
+            "mixed": concat,
+            "output": self.w_o(concat),
+        }
+
     def forward(
         self,
         query: torch.Tensor,
@@ -78,23 +116,8 @@ class MultiHeadAttention(nn.Module):
         value: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        batch, query_len, _ = query.shape
-        key_len = key.size(1)
-
-        def split(projected: torch.Tensor, length: int) -> torch.Tensor:
-            return projected.view(batch, length, self.n_heads, self.d_k).transpose(1, 2)
-
-        q = split(self.w_q(query), query_len)
-        k = split(self.w_k(key), key_len)
-        v = split(self.w_v(value), key_len)
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
-        if mask is not None:
-            scores = scores.masked_fill(mask, float("-inf"))
-        weights = torch.softmax(scores, dim=-1)
-        weights = torch.nan_to_num(weights, nan=0.0)
-        mixed = torch.matmul(weights, v)
-        mixed = mixed.transpose(1, 2).contiguous().view(batch, query_len, -1)
-        return self.w_o(mixed), weights
+        parts = self.decompose(query, key, value, mask)
+        return parts["output"], parts["weights"]
 
 
 class PositionwiseFFN(nn.Module):
@@ -217,12 +240,27 @@ class Transformer(nn.Module):
         return F.linear(hidden, self.tgt_embed.weight)
 
     def _encode_layer(self, layer: EncoderLayer, hidden: torch.Tensor, mask: torch.Tensor):
-        attended, weights = layer.self_attn(hidden, hidden, hidden, mask)
+        parts = layer.self_attn.decompose(hidden, hidden, hidden, mask)
+        attended = parts["output"]
         after_attention = layer.norm_attn(hidden + layer.dropout(attended))
-        activated = F.relu(layer.ffn.w_1(after_attention))
+        pre = layer.ffn.w_1(after_attention)
+        activated = F.relu(pre)
         fed = layer.ffn.w_2(activated)
         after_ffn = layer.norm_ffn(after_attention + layer.dropout(fed))
-        return after_ffn, weights, after_attention, activated, after_ffn
+        return {
+            "self_attention": parts["weights"],
+            "after_attention": after_attention,
+            "ffn_relu": activated,
+            "after_ffn": after_ffn,
+            "q": parts["q"],
+            "k": parts["k"],
+            "v": parts["v"],
+            "qk": parts["qk"],
+            "mixed": parts["mixed"],
+            "attn_out": attended,
+            "ffn_pre": pre,
+            "ffn_out": fed,
+        }
 
     def _decode_layer(
         self,
@@ -251,17 +289,9 @@ class Transformer(nn.Module):
         src_sum = hidden
         encoder = []
         for layer in self.encoder_layers:
-            hidden, self_weights, after_attention, activated, after_ffn = self._encode_layer(
-                layer, hidden, src_mask
-            )
-            encoder.append(
-                {
-                    "self_attention": self_weights,
-                    "after_attention": after_attention,
-                    "ffn_relu": activated,
-                    "after_ffn": after_ffn,
-                }
-            )
+            snap = self._encode_layer(layer, hidden, src_mask)
+            hidden = snap["after_ffn"]
+            encoder.append(snap)
         memory = hidden
         tgt_word = self.tgt_embed(tgt) * math.sqrt(self.d_model)
         tgt_position = self.positional.pe[:, : tgt.size(1)]

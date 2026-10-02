@@ -210,6 +210,48 @@
       overflow-x: auto;
       margin: 0.35rem 0;
     }
+    details.ops {
+      margin: 0.8rem 0 0.3rem;
+      padding: 0.7rem 0.85rem 0.85rem;
+      background: #e9e1d4;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    details.ops summary {
+      cursor: pointer;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-size: 1.08rem;
+      font-weight: 600;
+      list-style: none;
+    }
+    details.ops summary::-webkit-details-marker { display: none; }
+    details.ops summary::marker { content: ""; }
+    details.ops summary::before {
+      content: "▸ ";
+      font-family: Consolas, "Courier New", monospace;
+      font-weight: 500;
+    }
+    details.ops[open] summary::before { content: "↓ "; }
+    details.ops h3 {
+      margin: 1.15rem 0 0.25rem;
+      font-size: 1.02rem;
+    }
+    ul.ops-tree {
+      list-style: none;
+      margin: 0.45rem 0 0.15rem;
+      padding: 0 0 0 1.1rem;
+      overflow-x: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+    ul.ops-tree li {
+      display: grid;
+      grid-template-columns: 2rem minmax(14rem, max-content) auto;
+      column-gap: 0.85rem;
+      align-items: baseline;
+    }
+    ul.ops-tree .tag { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -381,6 +423,78 @@
       return wrap;
     }
 
+    function signedHeat(colLabels, matrix, rowLabels) {
+      let peak = 1e-8;
+      matrix.forEach((row) => row.forEach((value) => {
+        peak = Math.max(peak, Math.abs(value));
+      }));
+      const wrap = document.createElement("div");
+      wrap.className = "scroll map";
+      const table = document.createElement("table");
+      table.className = "data";
+      const head = document.createElement("tr");
+      head.appendChild(document.createElement("th"));
+      colLabels.forEach((label) => {
+        const cell = document.createElement("th");
+        cell.textContent = label;
+        head.appendChild(cell);
+      });
+      table.appendChild(head);
+      matrix.forEach((row, rowIndex) => {
+        const line = document.createElement("tr");
+        const label = document.createElement("th");
+        label.textContent = rowLabels[rowIndex];
+        line.appendChild(label);
+        row.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.className = "heat";
+          const mag = Math.min(1, Math.abs(value) / peak);
+          const ink = value >= 0 ? "148, 42, 27" : "29, 78, 137";
+          cell.style.background = "rgba(" + ink + ", " + (0.08 + 0.7 * mag).toFixed(3) + ")";
+          cell.style.color = mag > 0.55 ? "#fffdf8" : "#1d1915";
+          cell.textContent = Number(value).toFixed(3);
+          line.appendChild(cell);
+        });
+        table.appendChild(line);
+      });
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function headValues(heads, rowLabels, colLabels, blurb, diverging) {
+      const box = document.createElement("div");
+      const copy = document.createElement("p");
+      copy.className = "fine";
+      copy.textContent = blurb;
+      const bar = document.createElement("div");
+      bar.className = "toolbar";
+      const select = document.createElement("select");
+      heads.forEach((_, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = "head " + (index + 1);
+        select.appendChild(option);
+      });
+      const host = document.createElement("div");
+      function paint() {
+        const matrix = heads[Number(select.value)] || heads[0];
+        host.replaceChildren(
+          diverging
+            ? signedHeat(colLabels, matrix, rowLabels)
+            : heatTable(colLabels, matrix, rowLabels)
+        );
+      }
+      select.addEventListener("change", paint);
+      bar.appendChild(select);
+      paint();
+      box.append(copy, bar, host);
+      return box;
+    }
+
+    function exactBracket(values, digits) {
+      return "[ " + values.map((value) => signed(value, digits)).join(",  ") + " ]";
+    }
+
     function swatch(kind, label) {
       const item = document.createElement("span");
       const bar = document.createElement("i");
@@ -538,8 +652,7 @@
       const note = document.createElement("p");
       note.className = "fine";
       note.textContent = (columnNote || ("Columns are dimensions 0–" + (indexes.length - 1) + "."))
-        + " Color is scaled to the largest absolute value here, " + peak.toFixed(3)
-        + ". Hover a cell for the value. Rust is positive and blue is negative.";
+        + " Color is scaled to the largest absolute value here, " + peak.toFixed(3) + ".";
       const box = document.createElement("div");
       box.append(wrap, note);
       return box;
@@ -581,6 +694,121 @@
       paint();
       box.append(copy, bar, host);
       return box;
+    }
+
+    function encoderOps(trace) {
+      const width = trace.d_model;
+      const wide = trace.full.encoder[0].ffn_width;
+      const heads = trace.n_heads;
+      const rows = [
+        ["Linear: XWQ, XWK, XWV", "MatMul"],
+        ["QKᵀ", "MatMul"],
+        ["softmax", ""],
+        ["attention_weights · V", "MatMul"],
+        ["concat + output Linear", "MatMul"],
+        ["FFN " + width + " → " + wide, "MatMul"],
+        ["FFN " + wide + " → " + width, "MatMul"]
+      ];
+      const details = document.createElement("details");
+      details.className = "ops";
+      const summary = document.createElement("summary");
+      summary.textContent = trace.n_layers + " encoder layers";
+      const list = document.createElement("ul");
+      list.className = "ops-tree";
+      rows.forEach((row, index) => {
+        const item = document.createElement("li");
+        const branch = document.createElement("span");
+        branch.textContent = index === rows.length - 1 ? "└─" : "├─";
+        const name = document.createElement("span");
+        name.textContent = row[0];
+        item.append(branch, name);
+        if (row[1]) {
+          const tag = document.createElement("span");
+          tag.className = "tag";
+          tag.textContent = "← " + row[1];
+          item.appendChild(tag);
+        }
+        list.appendChild(item);
+      });
+      const note = document.createElement("p");
+      note.className = "fine";
+      note.textContent = "Each of the " + trace.n_layers
+        + " encoder layers does this once. The blocks below are those tensors for this sentence. Wide products are sampled at dimensions "
+        + trace.sample_dims.join(", ")
+        + ". QKᵀ and the softmax are the full token-by-token matrices. QKᵀ is divided by √"
+        + (width / heads)
+        + " before the softmax, and ReLU sits between the two feed-forward linears.";
+      details.append(summary, list, note);
+      trace.full.encoder.forEach((layer, index) => {
+        details.appendChild(encoderOpValues(layer, index, trace.sample_dims, width, heads));
+      });
+      return details;
+    }
+
+    function encoderOpValues(layer, index, dims, width, heads) {
+      const block = document.createElement("div");
+      const heading = document.createElement("h3");
+      heading.textContent = "Encoder layer " + (index + 1);
+      const dk = width / heads;
+      const scale = Math.sqrt(dk);
+      const dimNote = "Columns are dimensions " + dims.join(", ") + ", the same samples as the sinusoid curves.";
+      const labels = layer.labels;
+      const active = labels.map((label, row) => label + " " + layer.ffn_active[row] + "/" + layer.ffn_width).join(", ");
+      const dots = layer.qk[0][0];
+      const weights = layer.self_attention[0][0];
+      const walk = document.createElement("p");
+      walk.className = "fine";
+      walk.textContent = "Head 1, the " + labels[0] + " row, against " + labels.join(", ") + ".";
+      block.append(
+        heading,
+        namedMap("Q from the query linear", labels, layer.q, true, dimNote, dims),
+        namedMap("K from the key linear", labels, layer.k, true, dimNote, dims),
+        namedMap("V from the value linear", labels, layer.v, true, dimNote, dims),
+        headValues(
+          layer.qk,
+          labels,
+          labels,
+          "QKᵀ for one head. Entries are the raw dot products, before dividing by √" + dk + ".",
+          true
+        ),
+        walk,
+        formula("QKᵀ = " + exactBracket(dots, 4)),
+        formula("QKᵀ / √" + dk + " = " + exactBracket(dots.map((value) => value / scale), 4)),
+        formula("softmax = " + exactBracket(weights, 4)),
+        headValues(
+          layer.self_attention,
+          labels,
+          labels,
+          "softmax of those scores. This is the self-attention weight.",
+          false
+        ),
+        namedMap(
+          "attention_weights · V, concatenated from " + heads + " heads of " + dk,
+          labels,
+          layer.mixed,
+          true,
+          dimNote,
+          dims
+        ),
+        namedMap("concat + output linear", labels, layer.attn_out, true, dimNote, dims),
+        namedMap(
+          "FFN " + width + " → " + layer.ffn_width + " before ReLU. Positive units: " + active + ".",
+          labels,
+          layer.ffn_pre,
+          true,
+          dimNote,
+          dims
+        ),
+        namedMap(
+          "FFN " + layer.ffn_width + " → " + width + ", the second linear applied to the ReLU",
+          labels,
+          layer.ffn_out,
+          true,
+          dimNote,
+          dims
+        )
+      );
+      return block;
     }
 
     function renderEncoderLayer(layer, index, dims) {
@@ -926,6 +1154,7 @@
         "3. Encoder layers",
         trace.encoder_summary + " Both layers follow, with every head, the ReLU hidden state, and the residual stream."
       );
+      encoder.appendChild(encoderOps(trace));
       trace.full.encoder.forEach((layer, index) => encoder.appendChild(renderEncoderLayer(layer, index, dims)));
       const encoderOut = document.createElement("p");
       encoderOut.className = "fine";
